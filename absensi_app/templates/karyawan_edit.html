@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Karyawan - Absensi Karyawan{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">Edit Karyawan: {{ karyawan.nama }}</h5>
+      </div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data">
+          <div class="row mb-3">
+            <div class="col-md-4 text-center">
+              {% if karyawan.foto %}
+                <img src="{{ url_for('static', filename='uploads/' + karyawan.foto) }}" 
+                     alt="{{ karyawan.nama }}" class="img-thumbnail rounded" width="200">
+              {% else %}
+                <div class="rounded border border-secondary p-5 bg-light">
+                  <p class="text-muted">Belum ada foto</p>
+                </div>
+              {% endif %}
+            </div>
+            <div class="col-md-8">
+              <div class="mb-3">
+                <label for="nama" class="form-label">Nama Lengkap</label>
+                <input type="text" class="form-control" id="nama" name="nama" value="{{ karyawan.nama }}" required>
+              </div>
+
+              <div class="mb-3">
+                <label for="username" class="form-label">Username</label>
+                <input type="text" class="form-control" id="username" value="{{ karyawan.username }}" disabled>
+                <small class="text-muted">Username tidak dapat diubah</small>
+              </div>
+
+              <div class="mb-3">
+                <label for="password" class="form-label">Password Baru (biarkan kosong jika tidak ingin mengubah)</label>
+                <input type="password" class="form-control" id="password" name="password" placeholder="Masukkan password baru">
+              </div>
+            </div>
+          </div>
+
+          <hr>
+
+          <div class="row">
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label for="email" class="form-label">Email</label>
+                <input type="email" class="form-control" id="email" name="email" value="{{ karyawan.email if karyawan.email else '' }}">
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label for="no_telepon" class="form-label">Nomor Telepon</label>
+                <input type="text" class="form-control" id="no_telepon" name="no_telepon" value="{{ karyawan.no_telepon if karyawan.no_telepon else '' }}">
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label for="jabatan" class="form-label">Jabatan</label>
+            <input type="text" class="form-control" id="jabatan" name="jabatan" value="{{ karyawan.jabatan if karyawan.jabatan else '' }}">
+          </div>
+
+          <div class="mb-3">
+            <label for="foto" class="form-label">Ganti Foto Wajah (PNG, JPG, JPEG, GIF)</label>
+            <input type="file" class="form-control" id="foto" name="foto" accept="image/*">
+            <small class="text-muted">Biarkan kosong jika tidak ingin mengubah foto</small>
+          </div>
+
+          <div class="d-grid gap-2 d-sm-flex justify-content-sm-end flex-wrap">
+            <a href="{{ url_for('daftar_karyawan') }}" class="btn btn-secondary flex-fill flex-sm-none">Batal</a>
+            <button type="submit" class="btn btn-warning flex-fill flex-sm-none">Simpan Perubahan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

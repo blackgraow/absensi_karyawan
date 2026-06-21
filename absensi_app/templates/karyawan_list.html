@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Daftar Karyawan - Absensi Karyawan{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Daftar Karyawan</h5>
+      </div>
+      <div class="card-body">
+        <a href="{{ url_for('tambah_karyawan') }}" class="btn btn-success mb-3">
+          <i class="bi bi-plus-circle"></i> Tambah Karyawan
+        </a>
+
+        <div class="table-responsive">
+          <table class="table table-striped table-hover">
+            <thead class="table-light">
+              <tr>
+                <th>Foto</th>
+                <th>Nama</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Telepon</th>
+                <th>Jabatan</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if karyawan_list %}
+                {% for k in karyawan_list %}
+                  <tr>
+                    <td>
+                      {% if k.foto %}
+                        <img src="{{ url_for('static', filename='uploads/' + k.foto) }}" 
+                             alt="{{ k.nama }}" class="rounded-circle" width="40" height="40">
+                      {% else %}
+                        <div class="rounded-circle bg-secondary d-inline-flex align-items-center justify-content-center" 
+                             style="width: 40px; height: 40px; color: white; font-weight: bold;">
+                          {{ k.nama[0].upper() }}
+                        </div>
+                      {% endif %}
+                    </td>
+                    <td>{{ k.nama }}</td>
+                    <td><code>{{ k.username }}</code></td>
+                    <td>{{ k.email if k.email else '-' }}</td>
+                    <td>{{ k.no_telepon if k.no_telepon else '-' }}</td>
+                    <td>{{ k.jabatan if k.jabatan else '-' }}</td>
+                    <td>
+                      <a href="{{ url_for('edit_karyawan', id=k.id) }}" class="btn btn-sm btn-warning">Edit</a>
+                      <a href="{{ url_for('hapus_karyawan', id=k.id) }}" class="btn btn-sm btn-danger" 
+                         onclick="return confirm('Yakin akan menghapus karyawan ini?');">Hapus</a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td colspan="7" class="text-center">Belum ada data karyawan.</td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

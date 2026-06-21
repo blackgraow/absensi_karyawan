@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Registrasi Wajah - Absensi Karyawan{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header bg-primary text-white">
+    <h5 class="mb-0">Registrasi Wajah Karyawan</h5>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-striped table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>#</th>
+            <th>Foto</th>
+            <th>Nama</th>
+            <th>Username</th>
+            <th>Status Wajah</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if karyawan_list %}
+            {% for karyawan in karyawan_list %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td>
+                  {% if karyawan.foto %}
+                    <img src="{{ url_for('static', filename='uploads/' + karyawan.foto) }}" alt="{{ karyawan.nama }}" class="rounded-circle" width="40" height="40">
+                  {% else %}
+                    <div class="rounded-circle bg-secondary d-inline-flex align-items-center justify-content-center" style="width: 40px; height: 40px; color: white; font-weight: bold;">
+                      {{ karyawan.nama[0].upper() }}
+                    </div>
+                  {% endif %}
+                </td>
+                <td>{{ karyawan.nama }}</td>
+                <td><code>{{ karyawan.username }}</code></td>
+                <td>
+                  {% if karyawan.face_image %}
+                    <span class="badge bg-success">Sudah Registrasi</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">Belum Registrasi</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{{ url_for('registrasi_wajah_detail', karyawan_id=karyawan.id) }}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-camera-fill"></i> Registrasi Wajah
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="6" class="text-center">Belum ada data karyawan.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

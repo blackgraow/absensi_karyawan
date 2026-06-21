@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Absensi Karyawan{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-12">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5">Halo, {{ user.nama }}</h2>
+        <p class="mb-0 text-muted">Selamat datang di dashboard absensi Anda.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-4">
+    <div class="card border-success h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title text-muted">Total Absensi</h6>
+            <p class="display-6 mb-0">{{ total_absensi }}</p>
+          </div>
+          <i class="bi bi-calendar-check text-success" style="font-size: 2rem;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-info h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title text-muted">Waktu Saat Ini</h6>
+            <p class="mb-0" style="font-size: 0.9rem;" id="clock-date">--</p>
+            <p class="mb-0 fw-bold" style="font-size: 1.25rem;" id="clock-time">--:--:--</p>
+          </div>
+          <i class="bi bi-clock text-info" style="font-size: 2rem;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-primary h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title text-muted">Total Karyawan</h6>
+            <p class="display-6 mb-0">{{ total_karyawan }}</p>
+          </div>
+          <i class="bi bi-people text-primary" style="font-size: 2rem;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-success h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title text-muted">Total Absensi Hari Ini</h6>
+            <p class="display-6 mb-0">{{ total_absensi_today }}</p>
+          </div>
+          <i class="bi bi-journal-check text-success" style="font-size: 2rem;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-warning h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title text-muted">Jumlah Hadir</h6>
+            <p class="display-6 mb-0">{{ jumlah_hadir }}</p>
+          </div>
+          <i class="bi bi-check2-square text-warning" style="font-size: 2rem;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-danger h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title text-muted">Jumlah Belum Hadir</h6>
+            <p class="display-6 mb-0">{{ jumlah_belum_hadir }}</p>
+          </div>
+          <i class="bi bi-clock-history text-danger" style="font-size: 2rem;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header bg-primary text-white">
+    <h5 class="mb-0">Riwayat Absensi Terakhir</h5>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-striped table-hover">
+        <thead class="table-light">
+          <tr>
+            <th>Tanggal</th>
+            <th>Jam Masuk</th>
+            <th>Jam Pulang</th>
+            <th>Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if absensi_list %}
+            {% for absen in absensi_list %}
+              <tr>
+                <td><strong>{{ absen.tanggal.strftime('%d-%m-%Y') }}</strong></td>
+                <td>{{ absen.jam_masuk.strftime('%H:%M:%S') }}</td>
+                <td>{{ absen.jam_pulang.strftime('%H:%M:%S') if absen.jam_pulang else '-' }}</td>
+                <td>
+                  {% if absen.keterangan == 'Hadir' %}
+                    <span class="badge bg-success">{{ absen.keterangan }}</span>
+                  {% elif absen.keterangan == 'Sakit' %}
+                    <span class="badge bg-warning">{{ absen.keterangan }}</span>
+                  {% elif absen.keterangan == 'Izin' %}
+                    <span class="badge bg-info">{{ absen.keterangan }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary">{{ absen.keterangan }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="4" class="text-center text-muted">Belum ada data absensi.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Fungsi untuk memperbarui jam secara real-time
+  function updateClock() {
+    const now = new Date();
+    
+    // Format waktu HH:MM:SS
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const timeString = `${hours}:${minutes}:${seconds}`;
+    
+    // Format tanggal Indonesia (DD Bulan YYYY)
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
+                    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    
+    const dayName = days[now.getDay()];
+    const date = now.getDate();
+    const month = months[now.getMonth()];
+    const year = now.getFullYear();
+    const dateString = `${date} ${month} ${year}`;
+    
+    // Update elemen DOM
+    document.getElementById('clock-date').textContent = dateString;
+    document.getElementById('clock-time').textContent = timeString;
+  }
+  
+  // Update jam pada saat halaman dimuat
+  updateClock();
+  
+  // Update jam setiap 1 detik
+  setInterval(updateClock, 1000);
+</script>
+{% endblock %}
+

@@ -1,0 +1,8 @@
+Flask>=2.3,<3
+Flask-SQLAlchemy>=3.0,<4
+PyMySQL>=1.0,<2
+python-dotenv>=1.0,<2
+openpyxl>=3.1,<4
+reportlab>=4.0,<5
+opencv-contrib-python>=4.8,<5
+numpy>=1.26,<2

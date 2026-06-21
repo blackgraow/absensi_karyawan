@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Laporan Absensi - Absensi Karyawan{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-12">
+    <div class="card mb-4">
+      <div class="card-header bg-info text-white">
+        <h5 class="mb-0">Laporan Absensi</h5>
+      </div>
+      <div class="card-body">
+        <form class="row g-3 align-items-end" method="get">
+          <div class="col-md-4">
+            <label for="start_date" class="form-label">Tanggal Mulai</label>
+            <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date }}">
+          </div>
+          <div class="col-md-4">
+            <label for="end_date" class="form-label">Tanggal Selesai</label>
+            <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date }}">
+          </div>
+          <div class="col-md-4 d-grid">
+            <button type="submit" class="btn btn-primary">Filter</button>
+          </div>
+        </form>
+
+        <div class="mt-4 d-flex gap-2 flex-wrap">
+          <a href="{{ url_for('laporan_absensi', start_date=start_date, end_date=end_date, export='excel') }}" class="btn btn-success">
+            <i class="bi bi-file-earmark-excel"></i> Export Excel
+          </a>
+          <a href="{{ url_for('laporan_absensi', start_date=start_date, end_date=end_date, export='pdf') }}" class="btn btn-danger">
+            <i class="bi bi-file-earmark-pdf"></i> Export PDF
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-bordered table-striped">
+            <thead class="table-light">
+              <tr>
+                <th>Tanggal</th>
+                <th>Nama</th>
+                <th>Username</th>
+                <th>Jam Masuk</th>
+                <th>Jam Pulang</th>
+                <th>Keterangan</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if absensi_records %}
+                {% for absen in absensi_records %}
+                  <tr>
+                    <td>{{ absen.tanggal.strftime('%d-%m-%Y') }}</td>
+                    <td>{{ absen.karyawan.nama }}</td>
+                    <td>{{ absen.karyawan.username }}</td>
+                    <td>{{ absen.jam_masuk.strftime('%H:%M:%S') if absen.jam_masuk else '-' }}</td>
+                    <td>{{ absen.jam_pulang.strftime('%H:%M:%S') if absen.jam_pulang else '-' }}</td>
+                    <td>{{ absen.keterangan }}</td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td colspan="6" class="text-center">Tidak ada data absensi pada periode ini.</td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

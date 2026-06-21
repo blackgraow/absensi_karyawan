@@ -1,0 +1,131 @@
+body {
+  min-height: 100vh;
+}
+
+.card {
+  border-radius: 1rem;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.navbar-brand {
+  font-weight: 700;
+}
+
+/* SIDEBAR */
+.sidebar {
+  border-right: 1px solid #e3e6f0;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.sidebar .nav-link {
+  color: #495057;
+  border-radius: 0.5rem;
+  margin-bottom: 0.5rem;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sidebar .nav-link:hover {
+  background-color: #f8f9fa;
+  color: #0d6efd;
+}
+
+.sidebar .nav-link.active {
+  background-color: #e7f1ff;
+  color: #0d6efd;
+  font-weight: 600;
+}
+
+.sidebar i {
+  font-size: 1.1rem;
+}
+
+main {
+  min-height: calc(100vh - 56px);
+}
+
+/* RESPONSIVE */
+@media (max-width: 767.98px) {
+  .sidebar {
+    display: none !important;
+  }
+
+  main {
+    min-height: auto;
+  }
+}
+
+/* TABLE */
+.table-hover tbody tr:hover {
+  background-color: #f8f9fa;
+  transition: background-color 0.15s ease-in-out;
+}
+
+/* BUTTONS */
+.btn {
+  border-radius: 0.5rem;
+}
+
+.btn-sm {
+  border-radius: 0.375rem;
+}
+
+/* CARDS */
+.card-header {
+  border-radius: 1rem 1rem 0 0;
+}
+
+.card-header.bg-primary,
+.card-header.bg-success,
+.card-header.bg-warning,
+.card-header.bg-danger {
+  border-radius: 1rem 1rem 0 0;
+  padding: 1rem;
+  font-weight: 600;
+}
+/* kode baru */
+body.login-page {
+  background: linear-gradient(180deg, #e9f4ff 0%, #f7fbff 100%);
+}
+
+body.login-page .login-card {
+  max-width: 450px;
+  border-radius: 1.5rem;
+  overflow: hidden;
+  animation: fadeIn 0.45s ease-out both;
+}
+
+body.login-page .login-card .card-body {
+  padding: 2rem;
+}
+
+body.login-page .login-card h1 {
+  letter-spacing: 0.03em;
+}
+
+body.login-page .login-card .form-control {
+  min-height: calc(1.5em + 1rem + 2px);
+}
+
+body.login-page .login-card .btn {
+  padding: 0.95rem 1.25rem;
+}
+
+body.login-page main > .alert {
+  display: none !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* kedua */

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Absensi - Absensi Karyawan{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-10 col-lg-8">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Absensi Hari Ini</h5>
+      </div>
+      <div class="card-body">
+        <p>Halo, <strong>{{ user.nama }}</strong>. Saat halaman ini dibuka, sistem akan mengaktifkan webcam untuk pengenalan wajah otomatis.</p>
+
+        <div class="alert alert-info" role="alert">
+          Kamera akan terbuka secara otomatis. Tekan <strong>SPACE</strong> untuk memproses wajah, atau <strong>ESC</strong> untuk membatalkan.
+        </div>
+
+        <div class="d-grid gap-2 d-md-flex justify-content-md-start flex-wrap">
+          <form method="post" class="flex-fill">
+            <input type="hidden" name="action" value="masuk">
+            <button type="submit" class="btn btn-success w-100" {% if hari_ini %}disabled{% endif %}>
+              <i class="bi bi-door-open"></i> Absen Masuk
+            </button>
+          </form>
+
+          <form method="post" class="flex-fill">
+            <input type="hidden" name="action" value="pulang">
+            <button type="submit" class="btn btn-warning w-100" {% if not hari_ini or hari_ini.jam_pulang %}disabled{% endif %}>
+              <i class="bi bi-door-closed"></i> Absen Pulang
+            </button>
+          </form>
+        </div>
+
+        <div class="mt-4">
+          <h6>Informasi Absensi Hari Ini</h6>
+          <ul class="list-group">
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Tanggal
+              <span>{{ hari_ini.tanggal.strftime('%d-%m-%Y') if hari_ini else today.strftime('%d-%m-%Y') }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Jam Masuk
+              <span>{{ hari_ini.jam_masuk.strftime('%H:%M:%S') if hari_ini else '-' }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Jam Pulang
+              <span>{{ hari_ini.jam_pulang.strftime('%H:%M:%S') if hari_ini and hari_ini.jam_pulang else '-' }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Keterangan
+              <span>{{ hari_ini.keterangan if hari_ini else 'Belum absen' }}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
