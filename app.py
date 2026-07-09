@@ -216,19 +216,11 @@ def build_face_recognizer():
     return recognizer, label_map
 
 
-def recognize_face_from_camera(recognizer, label_map, app=None):
+def recognize_face_from_camera(recognizer, label_map, app=None, show_window=False):
     """
     Recognize wajah dengan strict confidence threshold dan multi-frame verification.
-    
-    PERBAIKAN FACE RECOGNITION:
-    1. Setiap frame diprediksi confidence
-    2. JIKA confidence > FACE_CONFIDENCE_THRESHOLD (45), frame ini dianggap UNKNOWN, skip
-    3. Hanya frame dengan confidence <= threshold yang digunakan untuk voting
-    4. Minimal 70% dari valid frame harus memiliki label yang sama untuk dianggap VALID
-    5. Jika tidak memenuhi kriteria, tampilkan "Wajah tidak dikenali"
-    6. TIDAK ada record absensi dibuat jika wajah tidak dikenali
+    Untuk alur web, jalankan mode silent (tanpa jendela OpenCV) supaya kamera ditutup dengan rapi.
     """
-    # Get config dari app atau fallback ke default
     if app is None:
         threshold = 45.0
         min_frames = 15
@@ -237,7 +229,7 @@ def recognize_face_from_camera(recognizer, label_map, app=None):
         threshold = app.config.get('FACE_CONFIDENCE_THRESHOLD', 45.0)
         min_frames = app.config.get('FACE_MIN_FRAMES', 15)
         voting_percentage = app.config.get('FACE_VOTING_PERCENTAGE', 70)
-    
+
     face_cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
     )
@@ -245,204 +237,172 @@ def recognize_face_from_camera(recognizer, label_map, app=None):
     if not cap.isOpened():
         return {"status": "camera_error"}
 
-    result = {"status": "cancel"}
-    display_name = "SIAP"
-    display_confidence = 0.0
-    display_status = "MENUNGGU"
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            result = {"status": "camera_error"}
-            break
+    try:
+        if not show_window:
+            valid_predictions = []
+            all_predictions = []
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
-        )
+            for _ in range(min_frames):
+                ret, frame = cap.read()
+                if not ret:
+                    return {"status": "camera_error"}
 
-        # Display rectangles
-        for (x, y, w, h) in faces:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = face_cascade.detectMultiScale(
+                    gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
+                )
 
-        # Display realtime info
-        cv2.putText(frame, "Tekan SPACE untuk mulai, ESC untuk batal", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        cv2.putText(frame, f"Nama: {display_name}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.putText(frame, f"Confidence: {display_confidence:.2f}", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        status_color = (0, 255, 0) if display_status == "VALID" else (0, 0, 255) if display_status == "UNKNOWN" else (255, 255, 255)
-        cv2.putText(frame, f"Status: {display_status}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-        
-        cv2.imshow("Absensi Wajah", frame)
+                if len(faces) == 1:
+                    (x, y, w, h) = faces[0]
+                    face_roi = gray[y:y + h, x:x + w]
+                    try:
+                        face_roi = cv2.resize(face_roi, (200, 200))
+                        face_roi = preprocess_face_image(face_roi, use_clahe=True)
+                        face_roi = normalize_brightness_contrast(face_roi, alpha=1.2, beta=30)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC
-            result = {"status": "cancel"}
-            break
-        
-        if key == 32:  # SPACE - mulai pengambilan 15 frame dengan confidence threshold checking
-            if len(faces) == 0:
-                result = {"status": "no_face"}
+                        label, confidence = recognizer.predict(face_roi)
+                        all_predictions.append((label, float(confidence)))
+
+                        if float(confidence) <= threshold:
+                            valid_predictions.append((label, float(confidence)))
+                    except Exception as e:
+                        print(f"Error predicting: {e}")
+                elif len(faces) > 1:
+                    print("Lebih dari 1 wajah terdeteksi, skip frame ini")
+
+            if len(valid_predictions) == 0:
+                return {"status": "unknown", "confidence": 0.0}
+
+            best_label, avg_confidence, vote_count, total_valid_frames = majority_vote_recognition(valid_predictions)
+            voting_percentage_result = (vote_count / len(valid_predictions)) * 100 if valid_predictions else 0
+
+            if voting_percentage_result >= voting_percentage and avg_confidence <= threshold and best_label in label_map:
+                return {
+                    "status": "recognized",
+                    "label": best_label,
+                    "confidence": float(avg_confidence),
+                }
+
+            return {"status": "unknown", "confidence": float(avg_confidence)}
+
+        result = {"status": "cancel"}
+        display_name = "SIAP"
+        display_confidence = 0.0
+        display_status = "MENUNGGU"
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                result = {"status": "camera_error"}
                 break
-            elif len(faces) > 1:
-                result = {"status": "multiple_faces"}
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(
+                gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
+            )
+
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            cv2.putText(frame, "Tekan SPACE untuk mulai, ESC untuk batal", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, f"Nama: {display_name}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, f"Confidence: {display_confidence:.2f}", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            status_color = (0, 255, 0) if display_status == "VALID" else (0, 0, 255) if display_status == "UNKNOWN" else (255, 255, 255)
+            cv2.putText(frame, f"Status: {display_status}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+
+            cv2.imshow("Absensi Wajah", frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:
+                result = {"status": "cancel"}
                 break
-            else:
-                # Mulai collect predictions dari 15 frame dengan confidence threshold checking
-                valid_predictions = []  # Predictions dengan confidence <= threshold
-                all_predictions = []    # Semua predictions untuk debug
-                frame_count = 0
-                unknown_start = None  # timestamp ketika pertama kali UNKNOWN terdeteksi
-                
-                # Ambil predictions dari min_frames (15)
-                while frame_count < min_frames:
-                    ret, frame = cap.read()
-                    if not ret:
-                        result = {"status": "camera_error"}
-                        break
-                    
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    faces = face_cascade.detectMultiScale(
-                        gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
-                    )
-                    
-                    # Display rectangles
-                    for (x, y, w, h) in faces:
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    
-                    # Show progress
-                    progress_text = f"Mengambil sample... {frame_count + 1}/{min_frames}"
-                    cv2.putText(frame, progress_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    
-                    cv2.imshow("Absensi Wajah", frame)
-                    cv2.waitKey(50)  # Delay untuk variasi frame
-                    
-                    # Process face jika ada tepat 1 wajah
-                    if len(faces) == 1:
-                        (x, y, w, h) = faces[0]
-                        face_roi = gray[y:y + h, x:x + w]
-                        try:
-                            face_roi = cv2.resize(face_roi, (200, 200))
-                            # Apply preprocessing saat recognition
-                            face_roi = preprocess_face_image(face_roi, use_clahe=True)
-                            face_roi = normalize_brightness_contrast(face_roi, alpha=1.2, beta=30)
-                            
-                            label, confidence = recognizer.predict(face_roi)
-                            all_predictions.append((label, float(confidence)))
-                            
-                            # ========== CONFIDENCE CHECKING ==========
-                            # JIKA confidence > threshold, frame dianggap UNKNOWN
-                            if float(confidence) <= threshold:
-                                # valid frame
-                                valid_predictions.append((label, float(confidence)))
-                                frame_count += 1
-                                # reset unknown timer jika sebelumnya sempat terdeteksi UNKNOWN
-                                unknown_start = None
-                            else:
-                                # Confidence terlalu tinggi, frame ini dianggap UNKNOWN
-                                print(f"[SKIP] Frame: Confidence {confidence:.2f} > Threshold {threshold:.2f} - UNKNOWN")
-                                # mulai atau cek timeout UNKNOWN 2 detik berturut-turut
-                                if unknown_start is None:
-                                    unknown_start = time.time()
-                                else:
-                                    elapsed = time.time() - unknown_start
-                                    if elapsed >= 2.0:
-                                        # Timeout reached: close camera and return UNKNOWN immediately
-                                        print("UNKNOWN DETECTED")
-                                        print("Closing Camera...")
-                                        cap.release()
-                                        cv2.destroyAllWindows()
-                                        print("Redirect to /absensi")
-                                        return {"status": "unknown", "confidence": float(confidence)}
-                        except Exception as e:
-                            print(f"Error predicting: {e}")
-                            continue
-                    elif len(faces) > 1:
-                        print("Lebih dari 1 wajah terdeteksi, skip frame ini")
-                    # Jika no face, skip frame
-                
-                # Selesai mengambil frames
-                if result.get("status") == "camera_error":
+
+            if key == 32:
+                if len(faces) == 0:
+                    result = {"status": "no_face"}
                     break
-                
-                # ========== CONFIDENCE CHECKING SEBELUM VOTING ==========
-                # Jika tidak ada frame dengan confidence <= threshold, langsung UNKNOWN
-                if len(valid_predictions) == 0:
-                    print("\n=== FACE RECOGNITION RESULT ===")
-                    print(f"Prediksi : NONE")
-                    print(f"Confidence : N/A")
-                    print(f"Threshold : {threshold:.2f}")
-                    print(f"Status : UNKNOWN (All frames exceed confidence threshold)")
-                    print(f"Valid Frames: {len(valid_predictions)}/{len(all_predictions)}")
-                    # Immediate cleanup and return UNKNOWN
-                    print("UNKNOWN DETECTED")
-                    print("Closing Camera...")
-                    cap.release()
-                    cv2.destroyAllWindows()
-                    print("Redirect to /absensi")
-                    return {"status": "unknown", "confidence": 0.0}
-                
-                # Majority voting dengan frame yang valid (confidence <= threshold)
-                best_label, avg_confidence, vote_count, total_valid_frames = majority_vote_recognition(valid_predictions)
-                
-                # Hitung persentase voting
-                voting_percentage_result = (vote_count / len(valid_predictions)) * 100 if valid_predictions else 0
-                
-                # ========== DEBUG OUTPUT LENGKAP ==========
-                print(f"\n[DEBUG] All Predictions from camera: {all_predictions}")
-                print(f"[DEBUG] Valid Predictions (confidence <= {threshold:.2f}): {valid_predictions}")
-                print(f"[DEBUG] Voting result: Label={best_label}, Avg Confidence={avg_confidence:.2f}, Vote Count={vote_count}/{len(valid_predictions)}")
-                print(f"[DEBUG] Voting percentage: {voting_percentage_result:.1f}%")
-                
-                # ========== FINAL DECISION ==========
-                if best_label is None:
-                    print("\n=== FACE RECOGNITION RESULT ===")
-                    print(f"Prediksi : NONE")
-                    print(f"Confidence : N/A")
-                    print(f"Threshold : {threshold:.2f}")
-                    print(f"Status : UNKNOWN")
-                    print("UNKNOWN DETECTED")
-                    print("Closing Camera...")
-                    cap.release()
-                    cv2.destroyAllWindows()
-                    print("Redirect to /absensi")
-                    return {"status": "unknown", "confidence": 0.0}
-                elif voting_percentage_result >= voting_percentage and avg_confidence <= threshold and best_label in label_map:
-                    # VALID: Minimal 70% frame memiliki label sama AND confidence <= threshold
-                    karyawan_name = label_map[best_label].nama
-                    print("\n=== FACE RECOGNITION RESULT ===")
-                    print(f"Prediksi : {karyawan_name}")
-                    print(f"Confidence : {avg_confidence:.2f}")
-                    print(f"Threshold : {threshold:.2f}")
-                    print(f"Status : VALID")
-                    print(f"Voting: {voting_percentage_result:.1f}% ({vote_count}/{len(valid_predictions)})")
-                    result = {
-                        "status": "recognized",
-                        "label": best_label,
-                        "confidence": float(avg_confidence),
-                    }
+                elif len(faces) > 1:
+                    result = {"status": "multiple_faces"}
+                    break
                 else:
-                    # UNKNOWN: Confidence terlalu tinggi atau voting kurang dari 70%
-                    karyawan_name = label_map[best_label].nama if best_label in label_map else "UNKNOWN"
-                    print("\n=== FACE RECOGNITION RESULT ===")
-                    print(f"Prediksi : {karyawan_name}")
-                    print(f"Confidence : {avg_confidence:.2f}")
-                    print(f"Threshold : {threshold:.2f}")
-                    print(f"Status : UNKNOWN")
-                    print(f"Reason: Voting {voting_percentage_result:.1f}% ({vote_count}/{len(valid_predictions)}) < {voting_percentage}%" if voting_percentage_result < voting_percentage else f"Reason: Confidence {avg_confidence:.2f} > Threshold {threshold:.2f}")
-                    print("UNKNOWN DETECTED")
-                    print("Closing Camera...")
-                    cap.release()
-                    cv2.destroyAllWindows()
-                    print("Redirect to /absensi")
-                    return {
-                        "status": "unknown",
-                        "confidence": float(avg_confidence),
-                    }
+                    valid_predictions = []
+                    all_predictions = []
+                    frame_count = 0
+                    unknown_start = None
 
-    cap.release()
-    cv2.destroyAllWindows()
-    return result
+                    while frame_count < min_frames:
+                        ret, frame = cap.read()
+                        if not ret:
+                            result = {"status": "camera_error"}
+                            break
+
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        faces = face_cascade.detectMultiScale(
+                            gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
+                        )
+
+                        for (x, y, w, h) in faces:
+                            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                        progress_text = f"Mengambil sample... {frame_count + 1}/{min_frames}"
+                        cv2.putText(frame, progress_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                        cv2.imshow("Absensi Wajah", frame)
+                        cv2.waitKey(50)
+
+                        if len(faces) == 1:
+                            (x, y, w, h) = faces[0]
+                            face_roi = gray[y:y + h, x:x + w]
+                            try:
+                                face_roi = cv2.resize(face_roi, (200, 200))
+                                face_roi = preprocess_face_image(face_roi, use_clahe=True)
+                                face_roi = normalize_brightness_contrast(face_roi, alpha=1.2, beta=30)
+
+                                label, confidence = recognizer.predict(face_roi)
+                                all_predictions.append((label, float(confidence)))
+
+                                if float(confidence) <= threshold:
+                                    valid_predictions.append((label, float(confidence)))
+                                    frame_count += 1
+                                    unknown_start = None
+                                else:
+                                    print(f"[SKIP] Frame: Confidence {confidence:.2f} > Threshold {threshold:.2f} - UNKNOWN")
+                                    if unknown_start is None:
+                                        unknown_start = time.time()
+                                    else:
+                                        elapsed = time.time() - unknown_start
+                                        if elapsed >= 2.0:
+                                            return {"status": "unknown", "confidence": float(confidence)}
+                            except Exception as e:
+                                print(f"Error predicting: {e}")
+                                continue
+                        elif len(faces) > 1:
+                            print("Lebih dari 1 wajah terdeteksi, skip frame ini")
+
+                    if result.get("status") == "camera_error":
+                        break
+
+                    if len(valid_predictions) == 0:
+                        return {"status": "unknown", "confidence": 0.0}
+
+                    best_label, avg_confidence, vote_count, total_valid_frames = majority_vote_recognition(valid_predictions)
+                    voting_percentage_result = (vote_count / len(valid_predictions)) * 100 if valid_predictions else 0
+
+                    if voting_percentage_result >= voting_percentage and avg_confidence <= threshold and best_label in label_map:
+                        result = {
+                            "status": "recognized",
+                            "label": best_label,
+                            "confidence": float(avg_confidence),
+                        }
+                    else:
+                        result = {"status": "unknown", "confidence": float(avg_confidence)}
+                    break
+
+        return result
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
 
 def generate_excel(absensi_records):
@@ -655,7 +615,7 @@ def create_app():
             )
             return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
 
-        result = recognize_face_from_camera(recognizer, label_map, app)
+        result = recognize_face_from_camera(recognizer, label_map, app, show_window=True)
 
         if result["status"] == "cancel":
             flash("Absensi dibatalkan oleh pengguna.", "warning")
