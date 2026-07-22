@@ -110,37 +110,8 @@ python app.py
 - Format file: PNG, JPG, JPEG, GIF
 - Nama file: `{username}_{original_filename}`
 
-## Troubleshooting
-
-### Error: "ModuleNotFoundError: No module named 'flask'"
-```powershell
-pip install -r requirements.txt
-```
-
-### Error: "Can't connect to MySQL"
-- Pastikan MySQL service berjalan
-- Verifikasi credentials di `.env`
-- Pastikan database sudah dibuat
-
-### Error: "Table already exists"
-```sql
-DROP TABLE IF EXISTS absensi;
-DROP TABLE IF EXISTS karyawan;
-```
-Kemudian jalankan `python app.py` lagi untuk recreate tables.
-
-## Development Tips
-- Gunakan `debug=True` di `app.run()` untuk development
-- Set `SQLALCHEMY_TRACK_MODIFICATIONS = False` di config
-- Gunakan `werkzeug.security` untuk password hashing
-- Selalu validasi input dari user
-
 ## Pengembangan Lebih Lanjut
-- Tambah fitur pencatatan masuk/pulang real-time
-- Laporan absensi mingguan/bulanan
-- Export ke Excel/PDF
 - Notifikasi email
-- Dashboard admin untuk manajemen user
 - Two-factor authentication
 
 ---
