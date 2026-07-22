@@ -3,63 +3,88 @@
 {% block title %}Login - Absensi Karyawan{% endblock %}
 
 {% block content %}
-<div class="container-fluid min-vh-100 d-flex justify-content-center align-items-center">
+<div class="login-split shadow">
 
-    <div class="w-100 d-flex justify-content-center">
+    <div class="login-panel-left">
+        <div class="login-panel-left-inner">
+            <div class="login-icon-box">
+                <i class="bi bi-calendar-check"></i>
+            </div>
+            <div class="login-brand-title">Absensi Karyawan</div>
+            <div class="login-brand-desc">Kelola kehadiran tim dengan pengenalan wajah, cepat dan akurat.</div>
+        </div>
+    </div>
 
-        <div class="card login-card shadow">
+    <div class="login-panel-right">
+        <div>
+            <div class="login-welcome-title">Selamat datang kembali</div>
+            <div class="login-welcome-sub">Masuk untuk melanjutkan ke dashboard</div>
 
-            <div class="card-body">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show">
+                            {{ message }}
+                            <button type="button"
+                                    class="btn-close"
+                                    data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
 
-                <h2 class="text-center mb-4">Login Absensi</h2>
+            <form method="POST">
 
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }} alert-dismissible fade show">
-                                {{ message }}
-                                <button type="button"
-                                        class="btn-close"
-                                        data-bs-dismiss="alert"></button>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-
-                <form method="POST">
-
-                    <div class="mb-3">
-                        <label class="form-label">Username</label>
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <div class="login-input-wrap">
+                        <i class="bi bi-person login-input-icon"></i>
                         <input type="text"
                                name="username"
-                               class="form-control"
+                               class="form-control login-input"
+                               placeholder="username"
                                required>
                     </div>
+                </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">Password</label>
+                <div class="mb-4">
+                    <label class="form-label">Password</label>
+                    <div class="login-input-wrap">
+                        <i class="bi bi-lock login-input-icon"></i>
                         <input type="password"
                                name="password"
-                               class="form-control"
+                               id="loginPassword"
+                               class="form-control login-input login-input-pw"
+                               placeholder="password"
                                required>
+                        <i class="bi bi-eye login-input-icon-right" id="togglePassword"></i>
                     </div>
+                </div>
 
-                    <button type="submit"
-                            class="btn btn-primary w-100">
-                        Masuk
-                    </button>
+                <button type="submit" class="btn btn-primary w-100 login-submit-btn">
+                    Masuk <i class="bi bi-arrow-right"></i>
+                </button>
 
-                </form>
+            </form>
 
-            </div>
-
+            <div class="login-footer-text">Butuh bantuan? Hubungi admin sistem</div>
         </div>
-
     </div>
 
 </div>
 
 <script>
 document.body.classList.add('login-page');
+
+const togglePassword = document.getElementById('togglePassword');
+const passwordInput = document.getElementById('loginPassword');
+if (togglePassword && passwordInput) {
+    togglePassword.addEventListener('click', function () {
+        const isHidden = passwordInput.type === 'password';
+        passwordInput.type = isHidden ? 'text' : 'password';
+        togglePassword.classList.toggle('bi-eye');
+        togglePassword.classList.toggle('bi-eye-slash');
+    });
+}
 </script>
 {% endblock %}

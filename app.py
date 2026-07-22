@@ -13,7 +13,7 @@ print("CV2 :", cv2.__file__)
 print("HAS FACE :", hasattr(cv2, "face"))
 print("=" * 50)
 import numpy as np
-from flask import Flask, flash, redirect, render_template, request, session, url_for, send_file
+from flask import Flask, flash, redirect, render_template, request, session, url_for, send_file, jsonify
 from openpyxl import Workbook
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
@@ -21,7 +21,6 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import SQLAlchemyError
 import traceback
 from werkzeug.utils import secure_filename
 
@@ -31,6 +30,7 @@ from models import Absensi, Karyawan
 
 UPLOAD_FOLDER = "absensi_app/static/uploads"
 FACES_FOLDER = os.path.join(UPLOAD_FOLDER, "faces")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
 
@@ -80,6 +80,26 @@ def normalize_brightness_contrast(image, alpha=1.2, beta=30):
     return image
 
 
+def augment_face_image(image, version):
+    """Buat variasi gambar wajah untuk menambah keanekaragaman sampel."""
+    if version == 0:
+        return image
+
+    augmented = image.copy()
+    if version == 1:
+        # Brightness sedikit lebih tinggi
+        augmented = normalize_brightness_contrast(augmented, alpha=1.1, beta=15)
+    elif version == 2:
+        # Brightness sedikit lebih rendah
+        augmented = normalize_brightness_contrast(augmented, alpha=0.9, beta=-10)
+    elif version == 3:
+        # Rotasi kecil untuk variasi sudut wajah
+        h, w = augmented.shape[:2]
+        matrix = cv2.getRotationMatrix2D((w / 2, h / 2), 5, 1)
+        augmented = cv2.warpAffine(augmented, matrix, (w, h), borderMode=cv2.BORDER_REFLECT)
+    return augmented
+
+
 def majority_vote_recognition(predictions):
     """
     Gunakan majority voting untuk menentukan identitas.
@@ -114,19 +134,55 @@ def ensure_face_image_column(app):
                 conn.execute(text("ALTER TABLE karyawan ADD COLUMN face_image VARCHAR(255) NULL"))
 
 
-def save_face_image(face_b64, filename):
-    header, encoded = face_b64.split(",", 1)
+def decode_face_image(face_b64):
+    if not face_b64 or "," not in face_b64:
+        return None
+
     try:
+        _, encoded = face_b64.split(",", 1)
         image_data = base64.b64decode(encoded)
     except Exception:
         return None
 
     np_arr = np.frombuffer(image_data, np.uint8)
     image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    return image
+
+
+def get_face_cascade():
+    candidate_paths = []
+    try:
+        candidate_paths.append(os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"))
+    except Exception:
+        pass
+
+    candidate_paths.extend([
+        os.path.join(BASE_DIR, "haarcascade_frontalface_default.xml"),
+        os.path.join(BASE_DIR, "absensi_app", "static", "models", "haarcascade_frontalface_default.xml"),
+        os.path.join(BASE_DIR, "absensi_app", "static", "models", "haarcascade_frontalface_alt2.xml"),
+        os.path.join(BASE_DIR, "absensi_app", "static", "models", "haarcascade_frontalface_alt.xml"),
+    ])
+
+    for path in candidate_paths:
+        if not path:
+            continue
+        if os.path.exists(path):
+            cascade = cv2.CascadeClassifier(path)
+            if not cascade.empty():
+                return cascade
+
+    return None
+
+
+def save_face_image(face_b64, filename):
+    image = decode_face_image(face_b64)
     if image is None:
         return None
 
-    classifier = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    classifier = get_face_cascade()
+    if classifier is None:
+        return "cascade_error"
+
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     faces = classifier.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100))
 
@@ -142,6 +198,74 @@ def save_face_image(face_b64, filename):
         f.write(encoded_img.tobytes())
 
     return secure_name
+
+
+def save_face_sample(face_b64, karyawan_id, app=None):
+    image = decode_face_image(face_b64)
+    if image is None:
+        return {"status": "invalid_image"}
+
+    classifier = get_face_cascade()
+    if classifier is None:
+        return {"status": "cascade_error"}
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = classifier.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100))
+
+    if len(faces) == 0:
+        return {"status": "no_face"}
+    if len(faces) > 1:
+        return {"status": "multiple_faces"}
+
+    faces_folder = app.config.get("FACES_FOLDER", FACES_FOLDER) if app else FACES_FOLDER
+    karyawan_folder = os.path.join(faces_folder, f"karyawan_{karyawan_id}")
+    os.makedirs(karyawan_folder, exist_ok=True)
+
+    (x, y, w, h) = faces[0]
+    face_roi_color = image[y:y + h, x:x + w]
+    face_roi_color = cv2.resize(face_roi_color, (200, 200))
+
+    existing_samples = [name for name in os.listdir(karyawan_folder) if name.lower().endswith((".jpg", ".jpeg", ".png"))]
+    next_number = len(existing_samples) + 1
+    saved_files = []
+    augmentations = app.config.get('FACE_SAMPLE_AUGMENTATIONS', 3) if app else 3
+
+    for variation in range(augmentations):
+        augmented_face = augment_face_image(face_roi_color, variation)
+        sample_filename = f"{next_number:03d}.jpg"
+        sample_path = os.path.join(karyawan_folder, sample_filename)
+        sample_path_rel = f"karyawan_{karyawan_id}/{sample_filename}"
+        _, encoded_img = cv2.imencode('.jpg', augmented_face)
+        with open(sample_path, 'wb') as f:
+            f.write(encoded_img.tobytes())
+        saved_files.append(sample_path_rel)
+        next_number += 1
+
+    return {"status": "saved", "saved_count": len(saved_files), "path": saved_files[0]}
+
+
+def get_face_image_url(karyawan, app=None):
+    if not karyawan or not getattr(karyawan, 'face_image', None):
+        return None
+
+    face_image_value = karyawan.face_image.replace('\\', '/')
+    faces_folder = app.config.get('FACES_FOLDER', FACES_FOLDER) if app else FACES_FOLDER
+    candidate_file = os.path.join(faces_folder, face_image_value)
+
+    if os.path.isfile(candidate_file):
+        return url_for('static', filename=f'uploads/faces/{face_image_value}')
+
+    candidate_dir = os.path.join(faces_folder, face_image_value)
+    if os.path.isdir(candidate_dir):
+        image_files = sorted([
+            name for name in os.listdir(candidate_dir)
+            if name.lower().endswith(('.jpg', '.jpeg', '.png'))
+        ])
+        if image_files:
+            image_rel = f"{face_image_value}/{image_files[0]}"
+            return url_for('static', filename=f'uploads/faces/{image_rel}')
+
+    return None
 
 
 def load_face_training_data():
@@ -216,193 +340,39 @@ def build_face_recognizer():
     return recognizer, label_map
 
 
-def recognize_face_from_camera(recognizer, label_map, app=None, show_window=False):
-    """
-    Recognize wajah dengan strict confidence threshold dan multi-frame verification.
-    Untuk alur web, jalankan mode silent (tanpa jendela OpenCV) supaya kamera ditutup dengan rapi.
-    """
+def recognize_face_from_image(recognizer, label_map, face_b64, app=None):
+    image = decode_face_image(face_b64)
+    if image is None:
+        return {"status": "invalid_image"}
+
     if app is None:
         threshold = 45.0
-        min_frames = 15
-        voting_percentage = 70
     else:
         threshold = app.config.get('FACE_CONFIDENCE_THRESHOLD', 45.0)
-        min_frames = app.config.get('FACE_MIN_FRAMES', 15)
-        voting_percentage = app.config.get('FACE_VOTING_PERCENTAGE', 70)
 
-    face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        return {"status": "camera_error"}
+    face_cascade = get_face_cascade()
+    if face_cascade is None:
+        return {"status": "cascade_error"}
 
-    try:
-        if not show_window:
-            valid_predictions = []
-            all_predictions = []
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100))
 
-            for _ in range(min_frames):
-                ret, frame = cap.read()
-                if not ret:
-                    return {"status": "camera_error"}
+    if len(faces) == 0:
+        return {"status": "no_face"}
+    if len(faces) > 1:
+        return {"status": "multiple_faces"}
 
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = face_cascade.detectMultiScale(
-                    gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
-                )
+    (x, y, w, h) = faces[0]
+    face_roi = gray[y:y + h, x:x + w]
+    face_roi = cv2.resize(face_roi, (200, 200))
+    face_roi = preprocess_face_image(face_roi, use_clahe=True)
+    face_roi = normalize_brightness_contrast(face_roi, alpha=1.2, beta=30)
 
-                if len(faces) == 1:
-                    (x, y, w, h) = faces[0]
-                    face_roi = gray[y:y + h, x:x + w]
-                    try:
-                        face_roi = cv2.resize(face_roi, (200, 200))
-                        face_roi = preprocess_face_image(face_roi, use_clahe=True)
-                        face_roi = normalize_brightness_contrast(face_roi, alpha=1.2, beta=30)
+    label, confidence = recognizer.predict(face_roi)
+    if float(confidence) <= threshold and label in label_map:
+        return {"status": "recognized", "label": label, "confidence": float(confidence)}
 
-                        label, confidence = recognizer.predict(face_roi)
-                        all_predictions.append((label, float(confidence)))
-
-                        if float(confidence) <= threshold:
-                            valid_predictions.append((label, float(confidence)))
-                    except Exception as e:
-                        print(f"Error predicting: {e}")
-                elif len(faces) > 1:
-                    print("Lebih dari 1 wajah terdeteksi, skip frame ini")
-
-            if len(valid_predictions) == 0:
-                return {"status": "unknown", "confidence": 0.0}
-
-            best_label, avg_confidence, vote_count, total_valid_frames = majority_vote_recognition(valid_predictions)
-            voting_percentage_result = (vote_count / len(valid_predictions)) * 100 if valid_predictions else 0
-
-            if voting_percentage_result >= voting_percentage and avg_confidence <= threshold and best_label in label_map:
-                return {
-                    "status": "recognized",
-                    "label": best_label,
-                    "confidence": float(avg_confidence),
-                }
-
-            return {"status": "unknown", "confidence": float(avg_confidence)}
-
-        result = {"status": "cancel"}
-        display_name = "SIAP"
-        display_confidence = 0.0
-        display_status = "MENUNGGU"
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                result = {"status": "camera_error"}
-                break
-
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(
-                gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
-            )
-
-            for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-            cv2.putText(frame, "Tekan SPACE untuk mulai, ESC untuk batal", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.putText(frame, f"Nama: {display_name}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, f"Confidence: {display_confidence:.2f}", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-            status_color = (0, 255, 0) if display_status == "VALID" else (0, 0, 255) if display_status == "UNKNOWN" else (255, 255, 255)
-            cv2.putText(frame, f"Status: {display_status}", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-
-            cv2.imshow("Absensi Wajah", frame)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == 27:
-                result = {"status": "cancel"}
-                break
-
-            if key == 32:
-                if len(faces) == 0:
-                    result = {"status": "no_face"}
-                    break
-                elif len(faces) > 1:
-                    result = {"status": "multiple_faces"}
-                    break
-                else:
-                    valid_predictions = []
-                    all_predictions = []
-                    frame_count = 0
-                    unknown_start = None
-
-                    while frame_count < min_frames:
-                        ret, frame = cap.read()
-                        if not ret:
-                            result = {"status": "camera_error"}
-                            break
-
-                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        faces = face_cascade.detectMultiScale(
-                            gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100)
-                        )
-
-                        for (x, y, w, h) in faces:
-                            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-                        progress_text = f"Mengambil sample... {frame_count + 1}/{min_frames}"
-                        cv2.putText(frame, progress_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-                        cv2.imshow("Absensi Wajah", frame)
-                        cv2.waitKey(50)
-
-                        if len(faces) == 1:
-                            (x, y, w, h) = faces[0]
-                            face_roi = gray[y:y + h, x:x + w]
-                            try:
-                                face_roi = cv2.resize(face_roi, (200, 200))
-                                face_roi = preprocess_face_image(face_roi, use_clahe=True)
-                                face_roi = normalize_brightness_contrast(face_roi, alpha=1.2, beta=30)
-
-                                label, confidence = recognizer.predict(face_roi)
-                                all_predictions.append((label, float(confidence)))
-
-                                if float(confidence) <= threshold:
-                                    valid_predictions.append((label, float(confidence)))
-                                    frame_count += 1
-                                    unknown_start = None
-                                else:
-                                    print(f"[SKIP] Frame: Confidence {confidence:.2f} > Threshold {threshold:.2f} - UNKNOWN")
-                                    if unknown_start is None:
-                                        unknown_start = time.time()
-                                    else:
-                                        elapsed = time.time() - unknown_start
-                                        if elapsed >= 2.0:
-                                            return {"status": "unknown", "confidence": float(confidence)}
-                            except Exception as e:
-                                print(f"Error predicting: {e}")
-                                continue
-                        elif len(faces) > 1:
-                            print("Lebih dari 1 wajah terdeteksi, skip frame ini")
-
-                    if result.get("status") == "camera_error":
-                        break
-
-                    if len(valid_predictions) == 0:
-                        return {"status": "unknown", "confidence": 0.0}
-
-                    best_label, avg_confidence, vote_count, total_valid_frames = majority_vote_recognition(valid_predictions)
-                    voting_percentage_result = (vote_count / len(valid_predictions)) * 100 if valid_predictions else 0
-
-                    if voting_percentage_result >= voting_percentage and avg_confidence <= threshold and best_label in label_map:
-                        result = {
-                            "status": "recognized",
-                            "label": best_label,
-                            "confidence": float(avg_confidence),
-                        }
-                    else:
-                        result = {"status": "unknown", "confidence": float(avg_confidence)}
-                    break
-
-        return result
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
+    return {"status": "unknown", "confidence": float(confidence)}
 
 
 def generate_excel(absensi_records):
@@ -547,7 +517,15 @@ def create_app():
             return redirect(url_for("login"))
 
         user = Karyawan.query.get(session["user_id"])
-        absensi_list = Absensi.query.filter_by(karyawan_id=user.id).order_by(Absensi.tanggal.desc()).limit(10).all()
+        history_user = user
+        if session.get("recognized_karyawan_id"):
+            recognized_history = Karyawan.query.get(session["recognized_karyawan_id"])
+            if recognized_history:
+                history_user = recognized_history
+            else:
+                session.pop("recognized_karyawan_id", None)
+
+        absensi_list = Absensi.query.filter_by(karyawan_id=history_user.id).order_by(Absensi.tanggal.desc(), Absensi.id.desc()).limit(10).all()
         total_absensi = Absensi.query.count()
         total_karyawan = Karyawan.query.count()
         today = date.today()
@@ -558,6 +536,7 @@ def create_app():
         return render_template(
             "dashboard.html",
             user=user,
+            history_user=history_user,
             absensi_list=absensi_list,
             total_absensi=total_absensi,
             total_karyawan=total_karyawan,
@@ -580,6 +559,129 @@ def create_app():
         if request.method == "POST":
             action = request.form.get("action")
 
+            if action == "face":
+                face_b64 = request.form.get("face_image", "").strip()
+                if not face_b64:
+                    message = "Foto wajah belum diambil."
+                    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                        return jsonify({"status": "error", "message": message})
+                    flash(message, "warning")
+                    return redirect(url_for("absensi"))
+
+                try:
+                    recognizer, label_map = build_face_recognizer()
+                except ImportError as e:
+                    message = str(e)
+                    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                        return jsonify({"status": "error", "message": message})
+                    flash(message, "danger")
+                    return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
+
+                if recognizer is None:
+                    message = "Belum ada wajah terdaftar. Silakan lakukan registrasi wajah terlebih dahulu."
+                    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                        return jsonify({"status": "error", "message": message})
+                    flash(message, "warning")
+                    return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
+
+                result = recognize_face_from_image(recognizer, label_map, face_b64, app)
+                if result["status"] == "recognized":
+                    recognized_id = result["label"]
+                    recognized_karyawan = label_map.get(recognized_id)
+                    confidence = result["confidence"]
+
+                    if not recognized_karyawan:
+                        message = "Wajah dikenali tetapi data karyawan tidak ditemukan."
+                        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                            return jsonify({"status": "error", "message": message})
+                        flash(message, "danger")
+                        return redirect(url_for("absensi"))
+
+                    existing_absensi = Absensi.query.filter_by(
+                        karyawan_id=recognized_karyawan.id,
+                        tanggal=today,
+                    ).first()
+
+                    if not existing_absensi:
+                        absensi = Absensi(
+                            karyawan_id=recognized_karyawan.id,
+                            tanggal=today,
+                            jam_masuk=datetime.now().time(),
+                            keterangan="Hadir",
+                        )
+                        db.session.add(absensi)
+                        db.session.commit()
+                        session["recognized_karyawan_id"] = recognized_karyawan.id
+                        hari_ini_data = {
+                            "tanggal": today.strftime('%d-%m-%Y'),
+                            "jam_masuk": absensi.jam_masuk.strftime('%H:%M:%S'),
+                            "jam_pulang": '-',
+                            "keterangan": absensi.keterangan,
+                        }
+                        message = f"Absensi masuk berhasil untuk {recognized_karyawan.nama}. Confidence: {confidence:.2f}"
+                        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                            return jsonify({
+                                "status": "success",
+                                "message": message,
+                                "recognized_nama": recognized_karyawan.nama,
+                                "hari_ini": hari_ini_data,
+                            })
+                        flash(message, "success")
+                        return redirect(url_for("dashboard"))
+
+                    if existing_absensi and not existing_absensi.jam_pulang:
+                        existing_absensi.jam_pulang = datetime.now().time()
+                        db.session.commit()
+                        session["recognized_karyawan_id"] = recognized_karyawan.id
+                        hari_ini_data = {
+                            "tanggal": today.strftime('%d-%m-%Y'),
+                            "jam_masuk": existing_absensi.jam_masuk.strftime('%H:%M:%S') if existing_absensi.jam_masuk else '-',
+                            "jam_pulang": existing_absensi.jam_pulang.strftime('%H:%M:%S'),
+                            "keterangan": existing_absensi.keterangan,
+                        }
+                        message = f"Absensi pulang berhasil untuk {recognized_karyawan.nama}. Confidence: {confidence:.2f}"
+                        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                            return jsonify({
+                                "status": "success",
+                                "message": message,
+                                "recognized_nama": recognized_karyawan.nama,
+                                "hari_ini": hari_ini_data,
+                            })
+                        flash(message, "success")
+                        return redirect(url_for("dashboard"))
+
+                    session["recognized_karyawan_id"] = recognized_karyawan.id
+                    hari_ini_data = {
+                        "tanggal": today.strftime('%d-%m-%Y'),
+                        "jam_masuk": existing_absensi.jam_masuk.strftime('%H:%M:%S') if existing_absensi.jam_masuk else '-',
+                        "jam_pulang": existing_absensi.jam_pulang.strftime('%H:%M:%S') if existing_absensi.jam_pulang else '-',
+                        "keterangan": existing_absensi.keterangan,
+                    }
+                    message = f"Absensi hari ini untuk {recognized_karyawan.nama} sudah lengkap (masuk dan pulang)."
+                    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                        return jsonify({
+                            "status": "warning",
+                            "message": message,
+                            "recognized_nama": recognized_karyawan.nama,
+                            "hari_ini": hari_ini_data,
+                        })
+                    flash(message, "warning")
+                    return redirect(url_for("dashboard"))
+
+                if result["status"] == "no_face":
+                    message = "Tidak ada wajah yang terdeteksi. Pastikan hanya satu orang berada di depan kamera."
+                elif result["status"] == "multiple_faces":
+                    message = "Lebih dari satu wajah terdeteksi. Pastikan hanya satu orang berada di depan kamera."
+                elif result["status"] == "invalid_image":
+                    message = "Gambar tidak valid. Coba ambil foto lagi."
+                else:
+                    message = "Wajah tidak terdaftar. Silakan registrasi terlebih dahulu."
+
+                if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                    return jsonify({"status": "error", "message": message})
+                flash(message, "danger")
+                return redirect(url_for("absensi"))
+
             if action == "masuk":
                 if hari_ini:
                     flash("Anda sudah melakukan absen masuk hari ini.", "warning")
@@ -600,97 +702,6 @@ def create_app():
                     db.session.commit()
                     flash("Absensi pulang berhasil.", "success")
                 return redirect(url_for("absensi"))
-
-        # Face recognition automatically starts when accessing halaman absensi.
-        try:
-            recognizer, label_map = build_face_recognizer()
-        except ImportError as e:
-            flash(str(e), "danger")
-            return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
-
-        if recognizer is None:
-            flash(
-                "Belum ada wajah terdaftar. Silakan lakukan registrasi wajah terlebih dahulu.",
-                "warning",
-            )
-            return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
-
-        result = recognize_face_from_camera(recognizer, label_map, app, show_window=True)
-
-        if result["status"] == "cancel":
-            flash("Absensi dibatalkan oleh pengguna.", "warning")
-            return redirect(url_for("absensi"))
-
-        if result["status"] == "camera_error":
-            flash("Kamera tidak dapat diakses. Pastikan webcam terpasang dan tidak digunakan aplikasi lain.", "danger")
-            return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
-
-        if result["status"] == "no_face":
-            flash("Tidak ada wajah yang terdeteksi. Pastikan hanya satu orang berada di depan kamera.", "danger")
-            return redirect(url_for("absensi"))
-
-        if result["status"] == "multiple_faces":
-            flash("Lebih dari satu wajah terdeteksi. Pastikan hanya satu orang berada di depan kamera.", "danger")
-            return redirect(url_for("absensi"))
-
-        if result["status"] == "recognition_error":
-            flash("Terjadi kesalahan saat mengenali wajah. Coba lagi.", "danger")
-            return redirect(url_for("absensi"))
-
-        if result["status"] == "unknown":
-            flash(
-                "Wajah tidak dikenali. Silakan registrasi terlebih dahulu.",
-                "danger",
-            )
-            return redirect(url_for("absensi"))
-
-        if result["status"] == "recognized":
-            recognized_id = result["label"]
-            recognized_karyawan = label_map.get(recognized_id)
-            confidence = result["confidence"]
-
-            if not recognized_karyawan:
-                flash("Wajah dikenali tetapi data karyawan tidak ditemukan.", "danger")
-                return redirect(url_for("absensi"))
-
-            existing_absensi = Absensi.query.filter_by(
-                karyawan_id=recognized_karyawan.id,
-                tanggal=today,
-            ).first()
-
-            # Jika belum ada absensi hari ini, buat record baru dengan jam_masuk
-            if not existing_absensi:
-                absensi = Absensi(
-                    karyawan_id=recognized_karyawan.id,
-                    tanggal=today,
-                    jam_masuk=datetime.now().time(),
-                    keterangan="Hadir",
-                )
-                db.session.add(absensi)
-                db.session.commit()
-                flash(
-                    f"Absensi masuk berhasil untuk {recognized_karyawan.nama}. Confidence: {confidence:.2f}",
-                    "success",
-                )
-                return redirect(url_for("dashboard"))
-
-            # Jika sudah ada record dan jam_pulang masih kosong, isi jam_pulang
-            if existing_absensi and not existing_absensi.jam_pulang:
-                existing_absensi.jam_pulang = datetime.now().time()
-                db.session.commit()
-                flash(
-                    f"Absensi pulang berhasil untuk {recognized_karyawan.nama}. Confidence: {confidence:.2f}",
-                    "success",
-                )
-                return redirect(url_for("dashboard"))
-
-            # Jika sudah ada record dan jam_pulang sudah terisi, tolak
-            if existing_absensi and existing_absensi.jam_pulang:
-                flash(
-                    f"Absensi hari ini untuk {recognized_karyawan.nama} sudah lengkap (masuk dan pulang).",
-                    "warning",
-                )
-                return redirect(url_for("dashboard"))
 
         return render_template("absensi.html", user=user, hari_ini=hari_ini, today=today)
 
@@ -768,174 +779,46 @@ def create_app():
         karyawan_list = Karyawan.query.all()
         return render_template("registrasi_wajah_list.html", karyawan_list=karyawan_list)
 
-    @app.route("/registrasi-wajah/<int:karyawan_id>")
+    @app.route("/registrasi-wajah/<int:karyawan_id>", methods=["GET", "POST"])
     def registrasi_wajah_detail(karyawan_id):
         if not session.get("user_id"):
             flash("Silakan login terlebih dahulu.", "warning")
             return redirect(url_for("login"))
 
-        karyawan = Karyawan.query.get_or_404(karyawan_id)
-
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            flash("Kamera tidak ditemukan. Pastikan webcam terpasang dan tidak digunakan aplikasi lain.", "danger")
+        karyawan = Karyawan.query.get(karyawan_id)
+        if not karyawan:
+            flash("Data karyawan tidak ditemukan.", "warning")
             return redirect(url_for("registrasi_wajah"))
 
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-        
-        # Target: 30-50 sampel dengan berbagai sudut (default 40)
-        target_samples = 40
-        instructions = [
-            "Hadap lurus ke kamera (10 sampel)",
-            "Hadap ke KANAN (8 sampel)",
-            "Hadap ke KIRI (8 sampel)",
-            "Hadap sedikit KE ATAS (7 sampel)",
-            "Hadap sedikit KE BAWAH (7 sampel)"
-        ]
-        instruction_samples = [10, 8, 8, 7, 7]
-        
-        samples_collected = []
-        current_instruction = 0
-        current_instruction_count = 0
-        result_status = "waiting"
-        
-        while current_instruction < len(instructions) and len(samples_collected) < target_samples:
-            ret, frame = cap.read()
-            if not ret:
-                result_status = "camera_error"
-                break
+        if request.method == "POST":
+            face_b64 = request.form.get("face_image", "").strip()
+            if not face_b64:
+                flash("Foto wajah belum diambil. Silakan ambil foto terlebih dahulu.", "warning")
+                return redirect(url_for("registrasi_wajah_detail", karyawan_id=karyawan_id))
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100))
+            result = save_face_sample(face_b64, karyawan_id, app)
+            if result.get("status") != "saved":
+                message = "Gagal memproses foto wajah. Pastikan wajah terlihat jelas."
+                if result.get("status") == "no_face":
+                    message = "Tidak ada wajah yang terdeteksi. Pastikan satu wajah terlihat jelas."
+                elif result.get("status") == "multiple_faces":
+                    message = "Lebih dari satu wajah terdeteksi. Pastikan hanya satu wajah di depan kamera."
+                elif result.get("status") == "cascade_error":
+                    message = "Model deteksi wajah OpenCV tidak tersedia. Periksa instalasi OpenCV dan file haarcascade."
+                flash(message, "danger")
+                return redirect(url_for("registrasi_wajah_detail", karyawan_id=karyawan_id))
 
-            # Draw rectangles
-            for (x, y, w, h) in faces:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-            # Display instructions
-            total_needed = instruction_samples[current_instruction]
-            instruction_text = instructions[current_instruction]
-            progress_text = f"Sampel {current_instruction_count}/{total_needed} | Total: {len(samples_collected)}/{target_samples}"
-            
-            cv2.putText(frame, instruction_text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(frame, progress_text, (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.putText(frame, "Tekan SPACE untuk capture otomatis, ESC untuk batal", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
-            cv2.imshow("Registrasi Wajah - Multiple Samples", frame)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == 27:  # ESC
-                result_status = "cancel"
-                break
-            
-            if key == 32:  # SPACE - mulai auto capture
-                # Mulai auto-capture untuk instruksi saat ini
-                auto_capture_count = 0
-                while auto_capture_count < instruction_samples[current_instruction] and len(samples_collected) < target_samples:
-                    ret, frame = cap.read()
-                    if not ret:
-                        result_status = "camera_error"
-                        break
-                    
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(100, 100))
-                    
-                    # Draw rectangles
-                    for (x, y, w, h) in faces:
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    
-                    # Status info
-                    instruction_text = instructions[current_instruction]
-                    progress_text = f"Sampel {auto_capture_count + 1}/{instruction_samples[current_instruction]} | Total: {len(samples_collected) + 1}/{target_samples}"
-                    
-                    cv2.putText(frame, instruction_text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(frame, progress_text, (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                    cv2.putText(frame, "Capturing...", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                    
-                    cv2.imshow("Registrasi Wajah - Multiple Samples", frame)
-                    cv2.waitKey(100)  # Delay untuk variasi frame
-                    
-                    # Capture jika ada exactly 1 wajah
-                    if len(faces) == 1:
-                        (x, y, w, h) = faces[0]
-                        face_sample = frame[y:y + h, x:x + w]
-                        samples_collected.append(face_sample)
-                        auto_capture_count += 1
-                        print(f"Captured sample {len(samples_collected)}: instruction {current_instruction}, photo {auto_capture_count}")
-                    elif len(faces) > 1:
-                        print(f"Skipped frame: {len(faces)} wajah terdeteksi")
-                    else:
-                        print(f"Skipped frame: tidak ada wajah")
-                    
-                    # User bisa cancel dengan ESC
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == 27:
-                        result_status = "cancel"
-                        break
-                
-                if result_status == "cancel":
-                    break
-                
-                # Pindah ke instruksi berikutnya
-                current_instruction += 1
-                current_instruction_count = 0
-
-        cap.release()
-        cv2.destroyAllWindows()
-
-        if result_status == "cancel":
-            flash("Registrasi wajah dibatalkan.", "warning")
-            return redirect(url_for("registrasi_wajah"))
-        
-        if result_status == "camera_error":
-            flash("Terjadi kesalahan saat mengakses kamera.", "danger")
-            return redirect(url_for("registrasi_wajah"))
-        
-        if len(samples_collected) < 30:  # Minimal 30 sampel
-            flash(f"Hanya berhasil mengumpulkan {len(samples_collected)} sampel. Minimal 30 sampel diperlukan. Coba lagi.", "danger")
+            saved_info = result.get('path')
+            if saved_info:
+                karyawan.face_image = saved_info
+                db.session.commit()
+                flash("Wajah berhasil diregistrasi.", "success")
+            else:
+                flash("Terjadi kesalahan saat menyimpan foto wajah.", "danger")
             return redirect(url_for("registrasi_wajah"))
 
-        # Simpan sampel ke folder karyawan
-        karyawan_face_dir = os.path.join(app.config["FACES_FOLDER"], f"karyawan_{karyawan_id}")
-        try:
-            os.makedirs(karyawan_face_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Error creating directory {karyawan_face_dir}: {e}")
-            flash("Gagal membuat folder penyimpanan. Coba lagi.", "danger")
-            return redirect(url_for("registrasi_wajah"))
-
-        # Simpan setiap sampel
-        saved_count = 0
-        try:
-            for idx, sample in enumerate(samples_collected):
-                # Preprocess sample before saving to ensure consistency with training
-                try:
-                    sample_proc = cv2.resize(sample, (200, 200))
-                except Exception:
-                    sample_proc = sample
-
-                sample_proc = preprocess_face_image(sample_proc, use_clahe=True)
-                sample_proc = normalize_brightness_contrast(sample_proc, alpha=1.2, beta=30)
-
-                sample_filename = f"{idx+1:03d}.jpg"
-                sample_path = os.path.join(karyawan_face_dir, sample_filename)
-                # cv2.imwrite handles grayscale images
-                success = cv2.imwrite(sample_path, sample_proc)
-                if success:
-                    saved_count += 1
-        except Exception as e:
-            print(f"Error saving samples: {e}")
-
-        if saved_count == 0:
-            flash("Gagal menyimpan sampel wajah. Pastikan folder dapat ditulis.", "danger")
-            return redirect(url_for("registrasi_wajah"))
-
-        # Update face_image column sebagai reference
-        karyawan.face_image = f"karyawan_{karyawan_id}"
-        db.session.commit()
-        
-        flash(f"Wajah berhasil diregistrasi dengan {saved_count} sampel.", "success")
-        return redirect(url_for("registrasi_wajah"))
+        face_image_url = get_face_image_url(karyawan, app)
+        return render_template("registrasi_wajah_detail.html", karyawan=karyawan, face_image_url=face_image_url)
 
     @app.route("/karyawan/tambah", methods=["GET", "POST"])
     def tambah_karyawan():

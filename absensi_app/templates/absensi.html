@@ -3,58 +3,156 @@
 {% block title %}Absensi - Absensi Karyawan{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-12 col-md-10 col-lg-8">
+<div class="row">
+  <div class="col-12">
     <div class="card shadow-sm mb-4">
-      <div class="card-header bg-primary text-white">
-        <h5 class="mb-0">Absensi Hari Ini</h5>
+      <div class="card-header bg-info text-white">
+        <h5 class="mb-0">Absensi</h5>
       </div>
       <div class="card-body">
-        <p>Halo, <strong>{{ user.nama }}</strong>. Saat halaman ini dibuka, sistem akan mengaktifkan webcam untuk pengenalan wajah otomatis.</p>
 
-        <div class="alert alert-info" role="alert">
-          Kamera akan terbuka secara otomatis. Tekan <strong>SPACE</strong> untuk memproses wajah, atau <strong>ESC</strong> untuk membatalkan.
-        </div>
+        <div class="row">
 
-        <div class="d-grid gap-2 d-md-flex justify-content-md-start flex-wrap">
-          <form method="post" class="flex-fill">
-            <input type="hidden" name="action" value="masuk">
-            <button type="submit" class="btn btn-success w-100" {% if hari_ini %}disabled{% endif %}>
-              <i class="bi bi-door-open"></i> Absen Masuk
-            </button>
-          </form>
+          <div class="col-12 col-md-6 mb-3 mb-md-0 d-flex flex-column">
+            <div class="alert alert-info" role="alert">
+              Klik <strong>Mulai Kamera</strong>, lalu <strong>Ambil Foto</strong> untuk memproses absensi wajah secara otomatis.
+            </div>
 
-          <form method="post" class="flex-fill">
-            <input type="hidden" name="action" value="pulang">
-            <button type="submit" class="btn btn-warning w-100" {% if not hari_ini or hari_ini.jam_pulang %}disabled{% endif %}>
-              <i class="bi bi-door-closed"></i> Absen Pulang
-            </button>
-          </form>
-        </div>
+            <div id="camera-container" class="flex-grow-1 mb-3" style="min-height: 320px;">
+              <video id="video" class="w-100 h-100 rounded" autoplay muted playsinline style="background: #000; object-fit: cover;"></video>
+            </div>
+          </div>
 
-        <div class="mt-4">
-          <h6>Informasi Absensi Hari Ini</h6>
-          <ul class="list-group">
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-              Tanggal
-              <span>{{ hari_ini.tanggal.strftime('%d-%m-%Y') if hari_ini else today.strftime('%d-%m-%Y') }}</span>
-            </li>
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-              Jam Masuk
-              <span>{{ hari_ini.jam_masuk.strftime('%H:%M:%S') if hari_ini else '-' }}</span>
-            </li>
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-              Jam Pulang
-              <span>{{ hari_ini.jam_pulang.strftime('%H:%M:%S') if hari_ini and hari_ini.jam_pulang else '-' }}</span>
-            </li>
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-              Keterangan
-              <span>{{ hari_ini.keterangan if hari_ini else 'Belum absen' }}</span>
-            </li>
-          </ul>
+          <div class="col-12 col-md-6">
+            <div class="d-flex flex-column flex-sm-row gap-2 mb-3">
+              <button id="start-camera" class="btn btn-secondary flex-fill">Mulai Kamera</button>
+              <button id="stop-camera" class="btn btn-outline-secondary flex-fill" disabled>Stop Kamera</button>
+            </div>
+
+            <div id="camera-status" class="alert alert-secondary" role="status">Kamera belum aktif.</div>
+
+            <form id="face-form" method="post">
+              <input type="hidden" name="action" value="face">
+              <input type="hidden" id="face_image" name="face_image">
+              <button type="submit" class="btn btn-success w-100" id="submit-face" disabled>Proses Absensi Wajah</button>
+            </form>
+
+            <div class="mt-4">
+              <h6 id="absensi-info-heading">Informasi Absensi Hari Ini</h6>
+              <ul class="list-group">
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  Tanggal
+                  <span id="absensi-info-tanggal">{{ hari_ini.tanggal.strftime('%d-%m-%Y') if hari_ini else today.strftime('%d-%m-%Y') }}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  Jam Masuk
+                  <span id="absensi-info-masuk">{{ hari_ini.jam_masuk.strftime('%H:%M:%S') if hari_ini else '-' }}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  Jam Pulang
+                  <span id="absensi-info-pulang">{{ hari_ini.jam_pulang.strftime('%H:%M:%S') if hari_ini and hari_ini.jam_pulang else '-' }}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  Keterangan
+                  <span id="absensi-info-keterangan">{{ hari_ini.keterangan if hari_ini else 'Belum absen' }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
   </div>
 </div>
+
+<script>
+const startCameraBtn = document.getElementById('start-camera');
+const stopCameraBtn = document.getElementById('stop-camera');
+const submitFaceBtn = document.getElementById('submit-face');
+const faceInput = document.getElementById('face_image');
+const video = document.getElementById('video');
+const statusBox = document.getElementById('camera-status');
+const faceForm = document.getElementById('face-form');
+const infoHeading = document.getElementById('absensi-info-heading');
+const infoTanggal = document.getElementById('absensi-info-tanggal');
+const infoMasuk = document.getElementById('absensi-info-masuk');
+const infoPulang = document.getElementById('absensi-info-pulang');
+const infoKeterangan = document.getElementById('absensi-info-keterangan');
+let stream = null;
+
+function updateAbsensiInfo(data) {
+  if (!data || !data.hari_ini) {
+    return;
+  }
+  infoHeading.textContent = `Informasi Absensi Hari Ini untuk ${data.recognized_nama || 'Karyawan'}`;
+  infoTanggal.textContent = data.hari_ini.tanggal || infoTanggal.textContent;
+  infoMasuk.textContent = data.hari_ini.jam_masuk || infoMasuk.textContent;
+  infoPulang.textContent = data.hari_ini.jam_pulang || infoPulang.textContent;
+  infoKeterangan.textContent = data.hari_ini.keterangan || infoKeterangan.textContent;
+}
+
+startCameraBtn.addEventListener('click', async (event) => {
+  event.preventDefault();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    video.srcObject = stream;
+    stopCameraBtn.disabled = false;
+    startCameraBtn.disabled = true;
+    submitFaceBtn.disabled = false;
+    statusBox.textContent = 'Kamera aktif. Klik Proses Absensi Wajah untuk langsung memproses.';
+    statusBox.className = 'alert alert-success';
+  } catch (error) {
+    statusBox.textContent = 'Tidak dapat mengakses kamera. Berikan izin kamera pada browser.';
+    statusBox.className = 'alert alert-danger';
+  }
+});
+
+stopCameraBtn.addEventListener('click', (event) => {
+  event.preventDefault();
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  startCameraBtn.disabled = false;
+  stopCameraBtn.disabled = true;
+  submitFaceBtn.disabled = true;
+  faceInput.value = '';
+  statusBox.textContent = 'Kamera berhenti.';
+  statusBox.className = 'alert alert-secondary';
+});
+
+faceForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!stream) {
+    statusBox.textContent = 'Kamera belum aktif. Tekan Mulai Kamera terlebih dahulu.';
+    statusBox.className = 'alert alert-warning';
+    return;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  faceInput.value = canvas.toDataURL('image/jpeg');
+
+  const formData = new FormData(faceForm);
+  try {
+    const response = await fetch('{{ url_for("absensi") }}', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new URLSearchParams(formData)
+    });
+    const payload = await response.json();
+    statusBox.textContent = payload.message || 'Proses absensi selesai.';
+    statusBox.className = payload.status === 'success' ? 'alert alert-success' : payload.status === 'warning' ? 'alert alert-warning' : 'alert alert-danger';
+    updateAbsensiInfo(payload);
+  } catch (error) {
+    statusBox.textContent = 'Gagal mengirim data wajah ke server.';
+    statusBox.className = 'alert alert-danger';
+  }
+});
+</script>
 {% endblock %}

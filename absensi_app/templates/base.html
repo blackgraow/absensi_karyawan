@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Absensi Karyawan{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -11,9 +14,12 @@
   <body class="bg-light">
     <!-- NAVBAR (always visible) -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
-      <div class="container-fluid">
-        <a class="navbar-brand" href="{% if session.user_id %}{{ url_for('dashboard') }}{% else %}{{ url_for('login') }}{% endif %}">
-          <i class="bi bi-calendar-check"></i> Absensi Karyawan
+      <div class="container-fluid px-4">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="{% if session.user_id %}{{ url_for('dashboard') }}{% else %}{{ url_for('login') }}{% endif %}">
+          <span class="navbar-logo-box">
+            <i class="bi bi-calendar-check"></i>
+          </span>
+          Absensi Karyawan
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
@@ -32,6 +38,11 @@
                 </a>
               </li>
               <li class="nav-item">
+                <a class="nav-link {% if request.endpoint == 'registrasi_wajah' or request.endpoint == 'registrasi_wajah_detail' %}active{% endif %}" href="{{ url_for('registrasi_wajah') }}">
+                  <i class="bi bi-person-video2"></i> Registrasi Wajah
+                </a>
+              </li>
+              <li class="nav-item">
                 <a class="nav-link {% if request.endpoint == 'absensi' %}active{% endif %}" href="{{ url_for('absensi') }}">
                   <i class="bi bi-check2-circle"></i> Absensi
                 </a>
@@ -42,8 +53,8 @@
                 </a>
               </li>
               <li class="nav-item">
-                <a class="nav-link {% if request.endpoint == 'registrasi_wajah' or request.endpoint == 'registrasi_wajah_detail' %}active{% endif %}" href="{{ url_for('registrasi_wajah') }}">
-                  <i class="bi bi-person-video2"></i> Registrasi Wajah
+                <a class="nav-link" href="{{ url_for('logout') }}">
+                  <i class="bi bi-box-arrow-right"></i> Logout
                 </a>
               </li>
             </ul>
@@ -52,10 +63,10 @@
           <ul class="navbar-nav ms-auto">
             {% if session.user_id %}
               <li class="nav-item d-none d-md-flex align-items-center">
-                <span class="navbar-text text-white me-3">{{ session.user_name }}</span>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                <div class="navbar-user-badge">
+                  <span class="navbar-user-avatar">{{ session.user_name[0] | upper }}</span>
+                  <span class="navbar-user-name">{{ session.user_name }}</span>
+                </div>
               </li>
             {% endif %}
           </ul>
@@ -82,6 +93,11 @@
                   </a>
                 </li>
                 <li class="nav-item">
+                  <a class="nav-link {% if request.endpoint == 'registrasi_wajah' or request.endpoint == 'registrasi_wajah_detail' %}active{% endif %}" href="{{ url_for('registrasi_wajah') }}">
+                    <i class="bi bi-person-video2"></i> Registrasi Wajah
+                  </a>
+                </li>
+                <li class="nav-item">
                   <a class="nav-link {% if request.endpoint == 'absensi' %}active{% endif %}" href="{{ url_for('absensi') }}">
                     <i class="bi bi-check2-circle"></i> Absensi
                   </a>
@@ -91,9 +107,9 @@
                     <i class="bi bi-file-earmark-text"></i> Laporan Absensi
                   </a>
                 </li>
-                <li class="nav-item">
-                  <a class="nav-link {% if request.endpoint == 'registrasi_wajah' or request.endpoint == 'registrasi_wajah_detail' %}active{% endif %}" href="{{ url_for('registrasi_wajah') }}">
-                    <i class="bi bi-person-video2"></i> Registrasi Wajah
+                <li class="nav-item mt-3 pt-3 border-top">
+                  <a class="nav-link" href="{{ url_for('logout') }}">
+                    <i class="bi bi-box-arrow-right"></i> Logout
                   </a>
                 </li>
               </ul>
@@ -116,7 +132,7 @@
           {% endwith %}
 
           <!-- CONTENT BLOCK: Single definition for all child templates -->
-          <div class="{% if not session.user_id %}w-100{% endif %}" style="{% if not session.user_id %}max-width: 500px;{% endif %}">
+          <div class="{% if not session.user_id %}w-100{% endif %}" style="{% if not session.user_id %}max-width: 750px;{% endif %}">
             {% block content %}{% endblock %}
           </div>
         </main>
