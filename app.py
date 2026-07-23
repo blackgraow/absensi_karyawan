@@ -6,6 +6,7 @@ from datetime import date, datetime
 import cv2
 import time
 import sys
+import shutil
 
 print("=" * 50)
 print("PYTHON :", sys.executable)
@@ -36,6 +37,26 @@ ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif"}
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def delete_face_storage(karyawan, app=None):
+    faces_folder = app.config.get("FACES_FOLDER", FACES_FOLDER) if app else FACES_FOLDER
+
+    if not karyawan:
+        return
+
+    karyawan_dir = os.path.join(faces_folder, f"karyawan_{karyawan.id}")
+    if os.path.isdir(karyawan_dir):
+        shutil.rmtree(karyawan_dir)
+
+    face_value = getattr(karyawan, "face_image", None)
+    if face_value:
+        normalized_face = face_value.replace("\\", "/")
+        face_path = os.path.join(faces_folder, normalized_face)
+        if os.path.isdir(face_path):
+            shutil.rmtree(face_path)
+        elif os.path.isfile(face_path):
+            os.remove(face_path)
 
 
 def preprocess_face_image(image, use_clahe=True):
@@ -925,14 +946,11 @@ def create_app():
                         # Jika file tidak bisa dihapus, lanjutkan
                         print(f"Gagal menghapus file foto: {foto_path}")
 
-            # Hapus file wajah (faces) jika ada
-            if getattr(karyawan, "face_image", None):
-                face_path = os.path.join(app.config.get("FACES_FOLDER", FACES_FOLDER), karyawan.face_image)
-                if os.path.exists(face_path):
-                    try:
-                        os.remove(face_path)
-                    except OSError:
-                        print(f"Gagal menghapus file wajah: {face_path}")
+            # Hapus folder sampel wajah karyawan (format baru) dan file lama (format lama)
+            try:
+                delete_face_storage(karyawan, app)
+            except OSError as e:
+                print(f"Gagal menghapus file wajah: {e}")
 
             # Hapus objek karyawan
             db.session.delete(karyawan)
